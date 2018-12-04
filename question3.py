@@ -19,7 +19,7 @@ POSITIONS = np.arange(-12, 6) / 10
 VELOCITIES = np.arange(-7, 8) / 100
 ACTIONS = np.arange(3)
 
-env = gym.make("MountainCar-v0").env
+env = gym.make("MountainCar-v0")
 
 q_values = dict()
 for pair in np.array(np.meshgrid(POSITIONS, VELOCITIES)).T.reshape(-1, 2):
@@ -65,101 +65,142 @@ def initialize_values():
             q_values[entry][_action] = 0
 
 
-means = dict()
-variances = dict()
 funcs = locals()
 
-for alg in ALGS:
-    episode_counts = []
+for cool_alpha in [True, False]:
+    for cool_gamma in [True, False]:
+        for cool_epsilon in [True, False]:
+            cool_info = "(Cool $\\alpha$: {}, Cool $\gamma$: {}, Cool $\epsilon$: {})".format(
+                "Y" if cool_alpha else "N", "Y" if cool_gamma else "N", "Y" if cool_epsilon else "N"
+            )
 
-    initialize_values()
-    current_vals = {
-        "alpha": ALPHA,
-        "gamma": GAMMA,
-        "epsilon": EPSILON
-    }
+            means = dict()
+            variances = dict()
 
-    for i in range(20):
-        # current_vals["gamma"] = GAMMA
+            for v in [means, variances]:
+                for alg in ALGS:
+                    v[alg] = []
 
-        state = env.reset()
-        t = 0
+            print(cool_info)
+            for r in range(20):
+                print("\nRun {}".format(r))
+                plot_means = dict()
+                plot_vars = dict()
 
-        done = False
-        while not done:
-            t += 1
+                for alg in ALGS:
+                    episode_counts = []
 
-            state = tuple(state)
-            d = round(state[0], 1)
-            v = round(state[1], 2)
-            state = (d, v)
+                    initialize_values()
+                    current_vals = {
+                        "alpha": ALPHA,
+                        "gamma": GAMMA,
+                        "epsilon": EPSILON
+                    }
 
-            if random() < current_vals["epsilon"]:
-                action = env.action_space.sample()
-            else:
-                action = max(q_values[state].keys(), key=(lambda key: q_values[state][key]))
+                    for i in range(1000):
+                        state = env.reset()
+                        t = 0
 
-            next_state, reward, done, info = env.step(action)
+                        done = False
+                        while not done:
+                            t += 1
 
-            next_state_t = tuple(next_state)
-            next_d = round(next_state_t[0], 1)
-            next_v = round(next_state_t[1], 2)
-            next_state_t = (next_d, next_v)
+                            state = tuple(state)
+                            d = round(state[0], 1)
+                            v = round(state[1], 2)
+                            state = (d, v)
 
-            funcs[alg.lower()](state, next_state_t, reward, current_vals)
+                            if random() < current_vals["epsilon"]:
+                                action = env.action_space.sample()
+                            else:
+                                action = max(q_values[state].keys(), key=(lambda key: q_values[state][key]))
 
-            state = next_state
+                            next_state, reward, done, info = env.step(action)
 
-            for key in current_vals:
-                current_vals[key] *= (1 - COOLING)
+                            next_state_t = tuple(next_state)
+                            next_d = round(next_state_t[0], 1)
+                            next_v = round(next_state_t[1], 2)
+                            next_state_t = (next_d, next_v)
 
-            # current_vals["alpha"] *= (1 - COOLING / 100)
-            # current_vals["gamma"] *= (1 - COOLING / 100)
-            # current_vals["epsilon"] *= (1 - COOLING / 100)
+                            funcs[alg.lower()](state, next_state_t, reward, current_vals)
 
-        print("Run {}: Finished on Episode {}".format(i, t))
+                            state = next_state
 
-        episode_counts.append(t)
-    print()
+                            if cool_alpha:
+                                current_vals["alpha"] *= (1 - COOLING / 50)
+                            if cool_gamma:
+                                current_vals["gamma"] *= (1 - COOLING / 200)
+                            if cool_epsilon:
+                                current_vals["epsilon"] *= (1 - COOLING)
 
-    current_means = []
-    current_variances = []
-    total_sum = 0
-    for i, count in enumerate(episode_counts):
-        total_sum += count
-        current_means.append(total_sum / (i + 1))
+                        # print("Run {}: Finished on Episode {}".format(i, t))
 
-        variance = 0
-        for j in range(i + 1):
-            variance += (episode_counts[j] - current_means[i]) ** 2
-        variance /= (i + 1)
-        current_variances.append(variance)
+                        episode_counts.append(t)
 
-    means[alg] = current_means
-    variances[alg] = current_variances
+                    current_means = []
+                    current_variances = []
+                    total_sum = 0
+                    for i, count in enumerate(episode_counts):
+                        total_sum += count
+                        current_means.append(total_sum / (i + 1))
 
-    mean = current_means[len(current_means) - 1]
-    variance = current_variances[len(current_variances) - 1]
+                        variance = 0
+                        for j in range(i + 1):
+                            variance += (episode_counts[j] - current_means[i]) ** 2
+                        variance /= (i + 1)
+                        current_variances.append(variance)
 
-    print("Mean for {}: {}".format(alg, mean))
-    print("Variance for {}: {}".format(alg, variance))
-    print("\n")
+                    plot_means[alg] = current_means
+                    plot_vars[alg] = current_variances
 
-env.close()
+                    mean = current_means[len(current_means) - 1]
+                    variance = current_variances[len(current_variances) - 1]
 
-for vals in [means, variances]:
-    fig, ax = plt.subplots()
+                    means[alg].append(mean)
+                    variances[alg].append(variance)
 
-    if vals == means:
-        plt.title("Mean over Iterations")
-    else:
-        plt.title("Variance over Iterations")
+                    print("Mean for {}: {}".format(alg, mean))
+                    print("Variance for {}: {}".format(alg, variance))
 
-    plt.xticks(np.arange(0, 21, 4))
+                env.close()
 
-    for key in vals:
-        print(key)
-        plt.plot(np.arange(20), vals[key], label=key)
+                if r == 0:
+                    for vals in [plot_means, plot_vars]:
+                        fig, ax = plt.subplots()
 
-    plt.legend(loc="upper right")
-    plt.show()
+                        title = ""
+                        if vals == plot_means:
+                            title = "Mean over Iterations"
+                        else:
+                            title = "Variance over Iterations"
+
+                        title += "\n" + cool_info
+
+                        plt.title(title)
+                        plt.xticks(np.arange(0, len(vals["Q"]), 100))
+
+                        for key in vals:
+                            plt.plot(np.arange(len(vals[key])), vals[key], label=key)
+
+                        plt.legend(loc="best")
+                        plt.show()
+
+            for v in [means, variances]:
+                fig, ax = plt.subplots()
+
+                title = ""
+                if v == means:
+                    title = "Mean over Runs"
+                else:
+                    title = "Variance over Runs"
+
+                title += "\n" + cool_info
+
+                plt.title(title)
+                plt.xticks(np.arange(0, 20, 4))
+
+                for key in v:
+                    plt.plot(np.arange(20), v[key], label=key)
+
+                plt.legend(loc="best")
+                plt.show()
